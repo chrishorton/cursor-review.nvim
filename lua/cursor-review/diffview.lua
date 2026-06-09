@@ -14,6 +14,7 @@ function M.setup(config)
 
   local actions = require("diffview.actions")
   local dv_config = config.diffview
+  local git = require("cursor-review.git")
 
   diffview.setup({
     diff_binaries = false,
@@ -77,7 +78,13 @@ function M.setup(config)
       DiffviewOpen = {},
       DiffviewFileHistory = {},
     },
-    hooks = {},
+    hooks = {
+      view_closed = function()
+        if git.in_review() then
+          git.exit_review()
+        end
+      end,
+    },
     keymaps = {
       disable_defaults = false,
       view = {

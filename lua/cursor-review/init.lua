@@ -52,6 +52,10 @@ function M.setup(opts)
   local config_module = require("cursor-review.config")
   M._config = config_module.merge(opts)
 
+  -- Initialize git module with config
+  local git = require("cursor-review.git")
+  git.init_config(M._config)
+
   -- Check dependencies
   local deps_ok = true
 

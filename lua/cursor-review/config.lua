@@ -4,6 +4,12 @@
 local M = {}
 
 M.defaults = {
+  -- Alternate git directory for checkpoint isolation.
+  -- When set, all checkpoint/review operations use this dir instead of .git,
+  -- preventing Cursor's auto-checkpoint from interfering with your staging area.
+  -- Set to nil to use the normal .git directory (original behavior).
+  git_dir = nil, -- e.g., ".cursor-git"
+
   -- Keymap configuration
   keymaps = {
     enable = true,

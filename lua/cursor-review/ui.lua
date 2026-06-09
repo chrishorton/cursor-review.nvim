@@ -2,11 +2,12 @@
 -- Floating dialogs for commit messages using nui.nvim
 
 local M = {}
+local git = require("cursor-review.git")
 
 --- Get count of staged files
 ---@return number Number of staged files
 function M.get_staged_count()
-  local result = vim.fn.systemlist("git diff --cached --name-only 2>/dev/null")
+  local result = vim.fn.systemlist(git.cmd("diff --cached --name-only 2>/dev/null"))
   if vim.v.shell_error ~= 0 then
     return 0
   end
@@ -16,7 +17,7 @@ end
 --- Get list of staged file names
 ---@return string[] List of staged file paths
 function M.get_staged_files()
-  local result = vim.fn.systemlist("git diff --cached --name-only 2>/dev/null")
+  local result = vim.fn.systemlist(git.cmd("diff --cached --name-only 2>/dev/null"))
   if vim.v.shell_error ~= 0 then
     return {}
   end
@@ -26,16 +27,21 @@ end
 --- Get the last commit message
 ---@return string|nil Last commit message or nil if error
 function M.get_last_commit_message()
-  local result = vim.fn.system("git log -1 --format=%s 2>/dev/null")
+  local result = vim.fn.system(git.cmd("log -1 --format=%s 2>/dev/null"))
   if vim.v.shell_error ~= 0 then
     return nil
   end
   return result:gsub("\n", "")
 end
 
---- Check if we're in a git repository
+--- Check if we're in a git repository (checks both real and alternate)
 ---@return boolean
 function M.is_git_repo()
+  vim.fn.system(git.cmd("rev-parse --git-dir 2>/dev/null"))
+  if vim.v.shell_error == 0 then
+    return true
+  end
+  -- Fallback: check real .git
   vim.fn.system("git rev-parse --git-dir 2>/dev/null")
   return vim.v.shell_error == 0
 end
@@ -43,7 +49,7 @@ end
 --- Get current git status (porcelain)
 ---@return string Git status output
 function M.get_git_status()
-  return vim.fn.system("git status --porcelain 2>/dev/null")
+  return vim.fn.system(git.cmd("status --porcelain 2>/dev/null"))
 end
 
 --- Show floating input dialog for commit/amend
@@ -98,11 +104,10 @@ function M.show_commit_dialog(config, opts)
     default_value = opts.default_message or "",
     on_submit = function(value)
       if value and value ~= "" then
-        -- Escape quotes in commit message
         local escaped_msg = value:gsub('"', '\\"')
         local cmd = opts.amend
-          and string.format('git commit --amend -m "%s"', escaped_msg)
-          or string.format('git commit -m "%s"', escaped_msg)
+          and git.cmd(string.format('commit --amend -m "%s"', escaped_msg))
+          or git.cmd(string.format('commit -m "%s"', escaped_msg))
 
         local result = vim.fn.system(cmd)
 

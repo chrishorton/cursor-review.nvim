@@ -12,6 +12,7 @@ This plugin integrates [gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvi
 - **Gitsigns integration** for hunk-level staging and resetting
 - **Floating dialogs** for commit messages (powered by nui.nvim)
 - **Amend support** for iterative changes
+- **Isolated git directory** — checkpoints go to `.cursor-git/` so Cursor's auto-checkpoints don't interfere with your real staging area
 - **Fully configurable** keymaps and commands
 
 ## Requirements
@@ -122,6 +123,7 @@ require("cursor-review").setup()
 | `:CursorAmend` | Amend staged changes to previous commit (keep message) |
 | `:CursorAmend!` | Amend staged changes with new message (floating dialog) |
 | `:CursorAbort` | Discard all unstaged (rejected) changes |
+| `:CursorReviewEnd` | Exit review mode and restore normal git env (only with `git_dir`) |
 
 ## Default Keymaps
 
@@ -174,8 +176,37 @@ require("cursor-review").setup()
 
 ## Configuration
 
+### Isolated Git Directory (Recommended for Cursor users)
+
+If Cursor's auto-checkpoint commits interfere with your workflow (committing all files including unstaged ones), you can isolate the plugin's operations into a separate git directory:
+
 ```lua
 require("cursor-review").setup({
+  git_dir = ".cursor-git",  -- checkpoints go here instead of .git
+})
+```
+
+With this enabled:
+- `:CursorCheckpoint` commits to `.cursor-git/` (your real `.git` staging area is untouched)
+- `:CursorReview` temporarily sets `GIT_DIR` so gitsigns/diffview diff against the checkpoint
+- Closing diffview (or `:CursorReviewEnd`) restores normal git operations
+- `:CursorFinalize` commits accepted changes to `.cursor-git/`
+- Your real `.git` is never touched by the plugin
+
+Add `.cursor-git` to your project's `.gitignore`:
+```
+.cursor-git/
+```
+
+### Full Configuration
+
+```lua
+require("cursor-review").setup({
+  -- Alternate git directory for checkpoint isolation.
+  -- Set to ".cursor-git" to prevent Cursor's auto-checkpoint from
+  -- interfering with your staging area. Set to nil for original behavior.
+  git_dir = nil,
+
   -- Keymap configuration
   keymaps = {
     enable = true,  -- Set to false to disable all keymaps
@@ -252,8 +283,6 @@ require("cursor-review").setup({
   },
 })
 ```
-
-## API
 
 The plugin also exposes a Lua API for programmatic use:
 

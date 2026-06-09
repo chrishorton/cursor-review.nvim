@@ -4,6 +4,7 @@
 local M = {}
 
 local ui = require("cursor-review.ui")
+local git = require("cursor-review.git")
 
 --- Setup user commands
 ---@param config table Plugin configuration
@@ -20,6 +21,11 @@ function M.setup(config)
         return
       end
 
+      -- Ensure alternate git dir exists (if configured)
+      if git.is_enabled() and not git.ensure_initialized() then
+        return
+      end
+
       local status = ui.get_git_status()
       if status == "" then
         if config.notifications.enable then
@@ -28,15 +34,18 @@ function M.setup(config)
         return
       end
 
-      -- Stage all and commit
-      vim.fn.system("git add -A")
-      local result = vim.fn.system(string.format('git commit -m "%s"', msg))
+      -- Stage all and commit to the configured git dir
+      vim.fn.system(git.cmd("add -A"))
+      local result = vim.fn.system(git.cmd(string.format('commit -m "%s"', msg)))
 
       if vim.v.shell_error == 0 then
         if config.notifications.enable then
-          vim.notify("Checkpoint created: " .. msg, vim.log.levels.INFO)
+          local target = git.is_enabled() and " (to " .. config.git_dir .. ")" or ""
+          vim.notify("Checkpoint created" .. target .. ": " .. msg, vim.log.levels.INFO)
         end
-        pcall(vim.cmd, "Gitsigns refresh")
+        if not git.is_enabled() then
+          pcall(vim.cmd, "Gitsigns refresh")
+        end
       else
         vim.notify("Checkpoint failed: " .. result, vim.log.levels.ERROR)
       end
@@ -54,6 +63,49 @@ function M.setup(config)
         return
       end
 
+      -- If using alternate git dir, enter review mode (sets GIT_DIR env)
+      if git.is_enabled() then
+        if not git.has_commits() then
+          vim.notify(
+            "No checkpoint found. Run :" .. (cmds.checkpoint or "CursorCheckpoint") .. " first.",
+            vim.log.levels.WARN
+          )
+          return
+        end
+        git.enter_review()
+        -- Small delay to let gitsigns refresh before opening diffview
+        vim.defer_fn(function()
+          local status = ui.get_git_status()
+          if status == "" then
+            git.exit_review()
+            if config.notifications.enable then
+              vim.notify("No changes to review since checkpoint", vim.log.levels.INFO)
+            end
+            return
+          end
+          vim.cmd("DiffviewOpen")
+
+          if config.notifications.enable and config.notifications.verbose then
+            vim.notify(string.format(
+              [[
+Review Cursor changes (vs %s):
+  ]c / [c     - Navigate hunks
+  <leader>hs  - Accept (stage) hunk
+  <leader>hr  - Reject (reset) hunk
+  s / -       - Stage/unstage file
+  X           - Restore (reject) file
+  q           - Close diffview
+  :%s   - Commit accepted changes
+]],
+              config.git_dir,
+              cmds.finalize or "CursorFinalize"
+            ), vim.log.levels.INFO)
+          end
+        end, 100)
+        return
+      end
+
+      -- Standard mode (no alternate git dir)
       local status = ui.get_git_status()
       if status == "" then
         if config.notifications.enable then
@@ -113,8 +165,7 @@ Review Cursor changes:
       end
 
       if not opts.bang then
-        -- Quick amend: keep the same commit message
-        local result = vim.fn.system("git commit --amend --no-edit")
+        local result = vim.fn.system(git.cmd("commit --amend --no-edit"))
         if vim.v.shell_error == 0 then
           if config.notifications.enable then
             vim.notify("Amended commit: " .. last_commit, vim.log.levels.INFO)
@@ -124,7 +175,6 @@ Review Cursor changes:
           vim.notify("Amend failed: " .. result, vim.log.levels.ERROR)
         end
       else
-        -- Show floating input with previous message as default
         ui.show_commit_dialog(config, {
           amend = true,
           default_message = last_commit,
@@ -136,13 +186,17 @@ Review Cursor changes:
     })
   end
 
-  -- CursorAbort: Reset all unstaged changes
+  -- CursorAbort: Reset all unstaged changes (restores to checkpoint state)
   if cmds.abort then
     vim.api.nvim_create_user_command(cmds.abort, function()
-      ui.confirm("This will discard ALL unstaged changes. Continue?", function()
-        vim.fn.system("git checkout -- .")
+      local prompt = git.is_enabled()
+        and "This will discard ALL changes since checkpoint. Continue?"
+        or "This will discard ALL unstaged changes. Continue?"
+
+      ui.confirm(prompt, function()
+        vim.fn.system(git.cmd("checkout -- ."))
         pcall(vim.cmd, "Gitsigns refresh")
-        vim.cmd("e!") -- Reload current buffer
+        vim.cmd("e!")
         if config.notifications.enable then
           vim.notify("All unstaged changes discarded", vim.log.levels.INFO)
         end
@@ -153,6 +207,22 @@ Review Cursor changes:
       end)
     end, {
       desc = "Discard all unstaged (rejected) changes",
+    })
+  end
+
+  -- CursorReviewEnd: Exit review mode (restore normal git env)
+  if git.is_enabled() then
+    vim.api.nvim_create_user_command("CursorReviewEnd", function()
+      if git.in_review() then
+        git.exit_review()
+        if config.notifications.enable then
+          vim.notify("Exited review mode, restored normal git", vim.log.levels.INFO)
+        end
+      else
+        vim.notify("Not in review mode", vim.log.levels.INFO)
+      end
+    end, {
+      desc = "Exit cursor-review mode and restore normal git environment",
     })
   end
 end
